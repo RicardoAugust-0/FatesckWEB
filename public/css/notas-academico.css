@@ -1,0 +1,63 @@
+/* Camada visual isolada do módulo acadêmico de notas. */
+.notas-cabeca-form { display:grid; gap:12px; margin-bottom:14px; }
+.notas-cabeca-form .form-linha { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.notas-estatisticas { display:flex; flex-wrap:wrap; gap:8px 16px; padding:10px 12px; border:1px solid var(--borda, #ddd); border-radius:10px; }
+.nota-atencao { color:#a34b13; font-size:.78rem; font-weight:600; }
+.campo-nota.nota-abaixo { border-color:#d58a42 !important; background:rgba(213,138,66,.08); }
+.nota-contador-atencao { color:#a34b13; font-weight:700; }
+.notas-chips { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:5px; }
+.chip-categoria { background:rgba(75,105,155,.12); }
+.chip-atencao { color:#9b4c13; background:rgba(213,138,66,.13); }
+.notas-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:12px 0; }
+.notas-kpi { display:flex; flex-direction:column; gap:5px; min-width:0; padding:12px; border:1px solid var(--borda, #ddd); border-radius:12px; background:var(--fundo-card, transparent); }
+.notas-kpi span { color:var(--texto-mudo, #777); font-size:.78rem; }
+.notas-kpi b { font-size:1.35rem; overflow-wrap:anywhere; }
+.notas-controles { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:12px 0; }
+.notas-toggle { display:flex; align-items:center; gap:8px; font-size:.88rem; }
+.notas-busca { flex:1 1 180px; min-width:140px; max-width:320px; }
+.boletim-scroll { overflow:auto; max-width:100%; border:1px solid var(--borda, #ddd); border-radius:10px; }
+.tabela-boletim { width:100%; min-width:720px; border-collapse:separate; border-spacing:0; font-size:.86rem; }
+.tabela-boletim th,.tabela-boletim td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--borda, #ddd); white-space:nowrap; }
+.tabela-boletim thead th { position:sticky; top:0; z-index:2; background:var(--fundo-card, #fff); }
+.tabela-boletim .col-aluno { position:sticky; left:0; z-index:1; min-width:170px; background:var(--fundo-card, #fff); box-shadow:5px 0 8px -8px #000; }
+.tabela-boletim thead .col-aluno { z-index:3; }
+.tabela-boletim .col-aluno b,.tabela-boletim .col-aluno small { display:block; }
+.tabela-boletim .col-aluno small,.tabela-boletim thead small { color:var(--texto-mudo, #777); font-size:.72rem; font-weight:400; }
+.boletim-folha-link { padding:0; border:0; background:none; color:inherit; font:inherit; font-weight:700; cursor:pointer; text-align:left; }
+.boletim-folha-link:hover { text-decoration:underline; }
+.tabela-boletim .col-media,.tabela-boletim .valor-media { background:rgba(60,110,90,.07); font-weight:800; }
+.tabela-boletim tbody tr:last-child th,.tabela-boletim tbody tr:last-child td { border-bottom:0; }
+.nota-celula-atencao { color:#a34b13; background:rgba(213,138,66,.08); }
+.badge-desempenho { display:inline-flex; align-items:center; padding:5px 9px; border-radius:999px; font-size:.76rem; font-weight:700; white-space:nowrap; }
+.badge-neutro { color:var(--texto-mudo, #777); background:rgba(120,120,120,.12); }
+.badge-critico { color:#a12d2d; background:rgba(190,45,45,.13); }
+.badge-atencao { color:#96500f; background:rgba(213,138,66,.16); }
+.badge-regular { color:#176448; background:rgba(35,140,95,.14); }
+.resumo-desempenho { display:grid; grid-template-columns:auto 1fr; align-items:center; gap:12px 18px; padding:14px; margin-bottom:10px; border:1px solid var(--borda, #ddd); border-radius:12px; }
+.resumo-media { display:grid; gap:2px; min-width:90px; }
+.resumo-media span,.resumo-media small { color:var(--texto-mudo, #777); font-size:.78rem; }
+.resumo-media b { font-size:1.8rem; line-height:1.2; }
+.resumo-status { display:grid; gap:10px; }
+.notas-progresso { position:relative; height:9px; overflow:visible; border-radius:99px; background:rgba(120,120,120,.18); }
+.notas-progresso-preenchido { display:block; height:100%; border-radius:99px; background:var(--cor-turma, #28765b); }
+.notas-meta-marcador { position:absolute; top:-3px; height:15px; width:2px; background:currentColor; }
+.dica-atencao { grid-column:1/-1; margin:0; padding:9px 11px; border-radius:8px; color:#96500f; background:rgba(213,138,66,.12); font-size:.84rem; }
+@media (max-width:700px) {
+  .notas-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .notas-cabeca-form .form-linha { grid-template-columns:1fr 1fr; }
+  .resumo-desempenho { grid-template-columns:1fr; }
+}
+@media (max-width:520px) {
+  .boletim-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; box-shadow:inset -12px 0 12px -14px #000; }
+  .notas-controles { align-items:stretch; }
+  .notas-controles .botao { width:100%; }
+  .notas-busca { max-width:none; flex-basis:100%; }
+  .notas-kpi { padding:9px; }
+  .notas-kpi b { font-size:1.15rem; }
+}
+.notas-abas { display:flex; flex-wrap:wrap; gap:7px; margin:0 0 12px; }
+.notas-abas .botao.ativo { color:#fff; background:var(--cor-turma, #333); border-color:var(--cor-turma, #333); }
+.notas-filtro-wrap { display:flex; align-items:center; gap:10px; margin:12px 0; }
+.notas-filtro-turma { min-width:220px; }
+.turma-destacada { outline:2px solid var(--cor-turma, #777); outline-offset:3px; }
+@media (max-width:520px) { .notas-filtro-wrap { align-items:stretch; flex-direction:column; } .notas-filtro-turma { width:100%; } }

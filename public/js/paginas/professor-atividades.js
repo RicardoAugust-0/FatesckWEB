@@ -140,16 +140,22 @@ async function telaAtividade({ sessao, conteudo, href, definirCabecalhoMovel }, 
       else pendentes.set(uid, { nota: nota.value, comentario: comentario.value });
       atualizarResumoNotas();
     };
-    nota.addEventListener("input", guardar); comentario.addEventListener("input", guardar);
+    nota.addEventListener("input", () => { guardar(); atualizarDestaqueNota(nota); }); comentario.addEventListener("input", guardar);
+    atualizarDestaqueNota(nota);
     return el("div", { class: "campos-nota" }, el("span", { class: "rotulo-nota" }, `Nota (de ${formatarNota(notaMax)})`), nota, comentario);
+  }
+  function atualizarDestaqueNota(campo) {
+    const r = lerNota(campo.value, notaMax), abaixo = !r.erro && typeof r.valor === "number" && r.valor < notaMax * .6;
+    campo.classList.toggle("nota-abaixo", abaixo);
+    campo.title = abaixo ? "Nota abaixo de 60% da nota máxima" : "";
   }
   function valoresAtuais() {
     const uids = new Set([...Object.keys(itens), ...pendentes.keys()]);
     return [...uids].map(uid => pendentes.has(uid) ? lerNota(pendentes.get(uid).nota, notaMax).valor : itens[uid]?.valor).filter(v => typeof v === "number");
   }
   function atualizarResumoNotas() {
-    const v = valoresAtuais(), m = media(v);
-    resumoNotas.textContent = `${v.length} de ${total} com nota${m !== null ? ` · média da turma ${formatarNota(m)}` : ""}${pendentes.size ? ` · ${pendentes.size} ${pendentes.size === 1 ? "mudança não salva" : "mudanças não salvas"}` : ""}`;
+    const v = valoresAtuais(), m = media(v), abaixo = v.filter(n => n < notaMax * .6).length;
+    resumoNotas.textContent = `${v.length} de ${total} com nota${m !== null ? ` · média da turma ${formatarNota(m)}` : ""} · ${abaixo} abaixo de 60%${pendentes.size ? ` · ${pendentes.size} ${pendentes.size === 1 ? "mudança não salva" : "mudanças não salvas"}` : ""}`;
   }
   async function salvarNotasDaAtividade() {
     mensagem(erroNotas);

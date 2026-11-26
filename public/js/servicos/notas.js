@@ -10,10 +10,22 @@ import { idFolhaDaAtividade, tituloDaFolha } from "../utils/notas-util.js";
 const refFolha = (turmaId, folhaId) => doc(db, "turmas", turmaId, "notas", folhaId);
 
 // Folha avulsa ("Prova 1"): começa como rascunho.
-export async function criarFolha(sessao, turmaId, { titulo, notaMax }) {
+const camposExtrasFolha = ({ peso, categoria } = {}) => ({
+  ...(typeof peso === "number" && peso > 0 ? { peso } : {}),
+  ...( ["avaliacao", "atividade", "trabalho"].includes(categoria) ? { categoria } : {})
+});
+const permissionDenied = e => e?.code === "permission-denied" || e?.code === "firestore/permission-denied";
+
+export async function criarFolha(sessao, turmaId, { titulo, notaMax, peso, categoria }) {
   const ref = doc(collection(db, "turmas", turmaId, "notas"));
-  await setDoc(ref, { titulo, notaMax, publicada: false, autorUid: sessao.uid, criadoEm: serverTimestamp() });
-  return { id: ref.id, turmaId, titulo, notaMax, publicada: false, autorUid: sessao.uid };
+  const base = { titulo, notaMax, publicada: false, autorUid: sessao.uid, criadoEm: serverTimestamp() };
+  const extras = camposExtrasFolha({ peso, categoria });
+  try { await setDoc(ref, { ...base, ...extras }); }
+  catch (e) {
+    if (!Object.keys(extras).length || !permissionDenied(e)) throw e;
+    await setDoc(ref, base);
+  }
+  return { id: ref.id, turmaId, ...base, peso: extras.peso, categoria: extras.categoria };
 }
 
 // Folha de uma atividade (id fixo atv_{atividadeId}). Criada na primeira vez que o professor salva notas da atividade.
@@ -39,7 +51,15 @@ export async function salvarNotas(folha, mudancas) {
   await lote.commit();
 }
 
-export const alterarFolha = (folha, { titulo, notaMax }) => updateDoc(refFolha(folha.turmaId, folha.id), { titulo, notaMax });
+export async function alterarFolha(folha, { titulo, notaMax, peso, categoria }) {
+  const base = { titulo, notaMax };
+  const extras = camposExtrasFolha({ peso, categoria });
+  try { await updateDoc(refFolha(folha.turmaId, folha.id), { ...base, ...extras }); }
+  catch (e) {
+    if (!Object.keys(extras).length || !permissionDenied(e)) throw e;
+    await updateDoc(refFolha(folha.turmaId, folha.id), base);
+  }
+}
 export const publicarFolha = folha => updateDoc(refFolha(folha.turmaId, folha.id), { publicada: true, publicadaEm: serverTimestamp() });
 
 // Apagar folha: só RASCUNHO (as regras recusam publicada), pelo autor ou admin. Apaga as notas dela no mesmo lote
