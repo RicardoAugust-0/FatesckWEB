@@ -1,0 +1,647 @@
+rules_version = '2';
+
+// Regras de segurança do Fatesck.
+// Princípio: tudo é NEGADO, a não ser o que está liberado explicitamente abaixo.
+// Datas e limites de tempo usam SEMPRE a hora do servidor (request.time), nunca a do aparelho.
+// Toda escrita valida campos permitidos, tipos e tamanhos (isso também bloqueia HTML/script gigante ou campos estranhos).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===================================================================
+    // Funções de apoio
+    // ===================================================================
+
+    function eu() { return request.auth.uid; }
+    function logado() { return request.auth != null; }
+    function verificado() { return logado() && request.auth.token.email_verified == true; }
+    // Monta o caminho de um documento a partir de texto, ex.: caminho('turmas/' + t + '/membros/' + uid)
+    function caminho(p) { return path('/databases/' + database + '/documents/' + p); }
+
+    // Admin: existe admins/{uid} (documento criado à mão no console; o site nunca escreve nele).
+    function ehAdmin() { return logado() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+
+    function meuPerfil() { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data; }
+    function temPerfil() { return exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)); }
+
+    // Aluno ou professor com e-mail verificado e status "ativo". Professor pendente nunca passa aqui.
+    function perfilAtivo(p) {
+      return verificado() && temPerfil() && meuPerfil().perfil == p && meuPerfil().status == 'ativo';
+    }
+    function usuarioAtivo() { return perfilAtivo('aluno') || perfilAtivo('professor'); }
+
+    function ehRepresentante() { return exists(/databases/$(database)/documents/representantes/$(request.auth.uid)); }
+
+    // Nome oficial de quem está escrevendo (perfil, ou documento de admin).
+    function meuNome() {
+      return ehAdmin() ? get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.nome : meuPerfil().nome;
+    }
+
+    // ----- turmas -----
+    function turma(t) { return get(/databases/$(database)/documents/turmas/$(t)).data; }
+    function aberta(t) { return turma(t).arquivada == false; }
+    function ehMembro(t) { return exists(/databases/$(database)/documents/turmas/$(t)/membros/$(request.auth.uid)); }
+    function meuPapelNaTurma(t) { return get(/databases/$(database)/documents/turmas/$(t)/membros/$(request.auth.uid)).data.papel; }
+    function profDaTurma(t) { return perfilAtivo('professor') && ehMembro(t) && meuPapelNaTurma(t) == 'professor'; }
+    function alunoDaTurma(t) { return perfilAtivo('aluno') && ehMembro(t) && meuPapelNaTurma(t) == 'aluno'; }
+    // Leitura do conteúdo da turma: qualquer membro (aluno ou professor) com e-mail verificado, ou o admin.
+    function podeLerTurma(t) { return ehAdmin() || (verificado() && ehMembro(t)); }
+
+    // ----- validação -----
+    // Texto obrigatório: string, sem espaços nas pontas, entre min e max caracteres (min >= 1 bloqueia texto só com espaços).
+    function texto(v, min, max) { return v is string && v == v.trim() && v.size() >= min && v.size() <= max; }
+    function textoOpcional(d, campo, max) { return !(campo in d) || texto(d[campo], 1, max); }
+    function campos(d, permitidos, obrigatorios) { return d.keys().hasOnly(permitidos) && d.keys().hasAll(obrigatorios); }
+    function mudouSo(permitidos) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(permitidos); }
+    function mudou(campo) { return request.resource.data.diff(resource.data).affectedKeys().hasAny([campo]); }
+    function ms(ts) { return string(ts.toMillis()); }
+
+    function corValida(c) { return c in ['#A61C24', '#3B4048', '#2455C6', '#1F7A66', '#C2570C', '#5B4BD5', '#7A1118', '#15171A']; }
+    function codigoValido(c) { return c is string && c.matches('^[A-HJKMNP-Z2-9]{8}$'); }
+
+    // ----- registro de alterações (auditoria) -----
+    // A ação auditada só é aceita se, no MESMO lote, for criado um registro novo (criadoEm == hora desta escrita),
+    // feito por quem está escrevendo, com a ação e o alvo certos. Assim o registro não pode ser pulado nem reaproveitado.
+    function auditoriaOk(id, acao, alvo) {
+      return id is string && id.size() > 0 && id.size() <= 200
+        && registroConfere(getAfter(/databases/$(database)/documents/auditoria/$(id)), acao, alvo);
+    }
+    function registroConfere(r, acao, alvo) {
+      return r != null && r.data.acao == acao && r.data.autorUid == request.auth.uid
+        && r.data.criadoEm == request.time && r.data.alvo == alvo;
+    }
+
+    // ===================================================================
+    // Usuários
+    // ===================================================================
+
+    match /usuarios/{uid} {
+      allow get: if logado() && (eu() == uid || ehAdmin());
+      allow list: if ehAdmin(); // lista de usuários / professores pendentes: só o admin
+
+      // Cadastro: a própria pessoa cria o seu perfil (mesmo antes de confirmar o e-mail, para não sobrar conta sem perfil).
+      // Aluno nasce "ativo"; professor nasce "pendente". Ninguém vira admin pelo site.
+      allow create: if logado() && eu() == uid && validaCadastro(request.resource.data);
+
+      // Só o admin aprova professor pendente (pendente -> ativo), com registro de auditoria.
+      allow update: if ehAdmin()
+        && resource.data.perfil == 'professor' && resource.data.status == 'pendente'
+        && mudouSo(['status', 'aprovadoEm', 'aprovadoPor'])
+        && request.resource.data.status == 'ativo'
+        && request.resource.data.aprovadoEm == request.time
+        && request.resource.data.aprovadoPor == eu()
+        && auditoriaOk('aprovacao_' + uid, 'professor_aprovado', 'usuarios/' + uid);
+
+      allow delete: if false;
+
+      function validaCadastro(d) {
+        return campos(d, ['nome', 'email', 'perfil', 'status', 'criadoEm'], ['nome', 'email', 'perfil', 'status', 'criadoEm'])
+          && texto(d.nome, 2, 80)
+          && d.email == request.auth.token.email
+          // e-mail institucional: exatamente "cps.sp.gov.br" ou um subdomínio dele (ex.: aluno.cps.sp.gov.br).
+          // Não é um "termina com": "x@evilcps.sp.gov.br" e "x@cps.sp.gov.br.falso.com" são recusados.
+          && d.email.lower().matches('^[^@\\s]+@([a-z0-9-]+[.])*cps[.]sp[.]gov[.]br$')
+          && ((d.perfil == 'aluno' && d.status == 'ativo') || (d.perfil == 'professor' && d.status == 'pendente'))
+          && d.criadoEm == request.time;
+      }
+
+      // Últimas visualizações (badges e "não lidas"): só o dono.
+      match /leituras/{chave} {
+        allow read: if logado() && eu() == uid;
+        allow create, update: if logado() && eu() == uid
+          && chave.matches('^(turma_[A-Za-z0-9-]{1,64}_(atividades|avisos|chat)|conversa_[A-Za-z0-9_-]{1,140}|curso_avisos)$')
+          && campos(request.resource.data, ['vistoEm'], ['vistoEm'])
+          && request.resource.data.vistoEm == request.time;
+        allow delete: if false;
+      }
+    }
+
+    // Admins: criados à mão no console. O admin só lê o próprio documento (para o site saber que ele é admin).
+    match /admins/{uid} {
+      allow get: if logado() && eu() == uid;
+      allow list, write: if false;
+    }
+
+    // ===================================================================
+    // Representantes do curso (alunos) — só o admin altera, sempre com auditoria
+    // ===================================================================
+
+    match /representantes/{uid} {
+      allow read: if ehAdmin() || usuarioAtivo();
+      allow create: if ehAdmin()
+        && campos(request.resource.data, ['nome', 'adicionadoEm', 'auditoriaId'], ['nome', 'adicionadoEm', 'auditoriaId'])
+        && exists(caminho('usuarios/' + uid))
+        && get(caminho('usuarios/' + uid)).data.perfil == 'aluno'
+        && get(caminho('usuarios/' + uid)).data.status == 'ativo'
+        && request.resource.data.nome == get(caminho('usuarios/' + uid)).data.nome
+        && request.resource.data.adicionadoEm == request.time
+        && auditoriaOk(request.resource.data.auditoriaId, 'representante_adicionado', 'representantes/' + uid);
+      allow update: if false; // trocar = remover um e adicionar outro
+      allow delete: if ehAdmin()
+        && auditoriaOk('rep_remocao_' + uid + '_' + ms(resource.data.adicionadoEm), 'representante_removido', 'representantes/' + uid);
+    }
+
+    // Avisos para o curso inteiro: representante ativo ou admin. Visíveis para todos os usuários ativos.
+    match /avisosCurso/{v} {
+      allow read: if ehAdmin() || usuarioAtivo();
+      allow create: if campos(request.resource.data,
+            ['texto', 'autorUid', 'autorNome', 'autorPapel', 'criadoEm'],
+            ['texto', 'autorUid', 'autorNome', 'autorPapel', 'criadoEm'])
+        && texto(request.resource.data.texto, 1, 2000)
+        && request.resource.data.autorUid == eu()
+        && request.resource.data.criadoEm == request.time
+        && ((request.resource.data.autorPapel == 'admin' && ehAdmin())
+            || (request.resource.data.autorPapel == 'representante' && perfilAtivo('aluno') && ehRepresentante()))
+        && request.resource.data.autorNome == meuNome();
+      allow update: if podeMexerAvisoCurso()
+        && mudouSo(['texto', 'editadoEm', 'auditoriaId'])
+        && texto(request.resource.data.texto, 1, 2000)
+        && request.resource.data.editadoEm == request.time
+        && auditoriaOk(request.resource.data.auditoriaId, 'aviso_editado', 'avisosCurso/' + v);
+      allow delete: if podeMexerAvisoCurso()
+        && auditoriaOk('aviso_apagado_curso_' + v, 'aviso_apagado', 'avisosCurso/' + v);
+
+      // O autor só mexe enquanto ainda é representante; o admin mexe em qualquer um.
+      function podeMexerAvisoCurso() {
+        return ehAdmin()
+          || (resource.data.autorUid == eu() && resource.data.autorPapel == 'representante'
+              && perfilAtivo('aluno') && ehRepresentante());
+      }
+    }
+
+    // ===================================================================
+    // Códigos de turma: busca por código exato (nunca listagem)
+    // ===================================================================
+
+    match /codigos/{codigo} {
+      allow get: if verificado() || ehAdmin();
+      allow list: if false;
+      // Criado junto com a turma (mesmo lote). "create" só funciona se o código ainda não existe: isso garante código único.
+      // nome e cor ficam aqui também, para o aluno (que ainda não é membro) montar o pedido de entrada.
+      allow create: if (ehAdmin() || perfilAtivo('professor'))
+        && codigoValido(codigo)
+        && campos(request.resource.data, ['turmaId', 'arquivada', 'nome', 'cor'], ['turmaId', 'arquivada', 'nome', 'cor'])
+        && request.resource.data.arquivada == false
+        && request.resource.data.turmaId is string
+        && !exists(caminho('turmas/' + request.resource.data.turmaId))
+        && getAfter(caminho('turmas/' + request.resource.data.turmaId)).data.codigo == codigo
+        && request.resource.data.nome == getAfter(caminho('turmas/' + request.resource.data.turmaId)).data.nome
+        && request.resource.data.cor == getAfter(caminho('turmas/' + request.resource.data.turmaId)).data.cor;
+      // Acompanha a turma (arquivar/desarquivar, nome e cor): sempre igual ao documento da turma depois do lote.
+      allow update: if (ehAdmin() || profDaTurma(resource.data.turmaId))
+        && mudouSo(['arquivada', 'nome', 'cor'])
+        && request.resource.data.arquivada == getAfter(caminho('turmas/' + resource.data.turmaId)).data.arquivada
+        && request.resource.data.nome == getAfter(caminho('turmas/' + resource.data.turmaId)).data.nome
+        && request.resource.data.cor == getAfter(caminho('turmas/' + resource.data.turmaId)).data.cor;
+      allow delete: if false;
+    }
+
+    // ===================================================================
+    // Turmas
+    // ===================================================================
+
+    match /turmas/{t} {
+      allow get: if podeLerTurma(t);
+      allow list: if ehAdmin(); // alunos e professores encontram as suas turmas pelos "membros"
+
+      allow create: if (ehAdmin() || perfilAtivo('professor'))
+        && campos(request.resource.data,
+             ['nome', 'cor', 'codigo', 'arquivada', 'criadoPor', 'criadoEm'],
+             ['nome', 'cor', 'codigo', 'arquivada', 'criadoPor', 'criadoEm'])
+        && texto(request.resource.data.nome, 1, 80)
+        && corValida(request.resource.data.cor)
+        && codigoValido(request.resource.data.codigo)
+        && request.resource.data.arquivada == false
+        && request.resource.data.criadoPor == eu()
+        && request.resource.data.criadoEm == request.time
+        && getAfter(caminho('codigos/' + request.resource.data.codigo)).data.turmaId == t
+        // professor: precisa entrar como professor da turma no mesmo lote
+        && (ehAdmin() || getAfter(caminho('turmas/' + t + '/membros/' + eu())).data.papel == 'professor');
+
+      allow update: if (ehAdmin() || profDaTurma(t)) && (alteraNomeCor() || alteraArquivada());
+      allow delete: if false;
+
+      function alteraNomeCor() {
+        return resource.data.arquivada == false
+          && mudouSo(['nome', 'cor'])
+          && texto(request.resource.data.nome, 1, 80)
+          && corValida(request.resource.data.cor)
+          // o código da turma é atualizado no mesmo lote (nome/cor iguais)
+          && getAfter(caminho('codigos/' + resource.data.codigo)).data.nome == request.resource.data.nome
+          && getAfter(caminho('codigos/' + resource.data.codigo)).data.cor == request.resource.data.cor;
+      }
+      function alteraArquivada() {
+        return mudouSo(['arquivada', 'auditoriaId'])
+          && request.resource.data.arquivada is bool
+          && request.resource.data.arquivada != resource.data.arquivada
+          && getAfter(caminho('codigos/' + resource.data.codigo)).data.arquivada == request.resource.data.arquivada
+          && auditoriaOk(request.resource.data.auditoriaId,
+               request.resource.data.arquivada ? 'turma_arquivada' : 'turma_desarquivada', 'turmas/' + t);
+      }
+
+      // ---------------- membros (alunos e professores) ----------------
+      match /membros/{uid} {
+        allow get: if logado() && ((verificado() && eu() == uid) || ehAdmin() || profDaTurma(t)
+                                   || (alunoDaTurma(t) && resource.data.papel == 'professor'));
+        // O aluno só lista os professores da turma (consulta com where papel == 'professor'); nunca os colegas.
+        allow list: if ehAdmin() || profDaTurma(t) || (alunoDaTurma(t) && resource.data.papel == 'professor');
+
+        // O aluno NÃO entra sozinho: ele faz um pedido (abaixo) e o professor da turma ou o admin aprova.
+        allow create: if request.resource.data.uid == uid
+          && request.resource.data.entrouEm == request.time
+          && (aprovacaoDePedido() || professorCriandoTurma() || adminAdicionando());
+        allow update: if false;
+        // Só o admin remove, e só aluno, com auditoria.
+        allow delete: if ehAdmin() && resource.data.papel == 'aluno'
+          && auditoriaOk('remocao_' + t + '_' + uid + '_' + ms(resource.data.entrouEm), 'aluno_removido',
+                         'turmas/' + t + '/membros/' + uid);
+
+        // Professor da turma (ou admin) aprova um pedido pendente: cria o membro, apaga o pedido e registra, no mesmo lote.
+        function aprovacaoDePedido() {
+          return (ehAdmin() || profDaTurma(t)) && aberta(t)
+            && exists(caminho('turmas/' + t + '/pedidos/' + uid))
+            && get(caminho('turmas/' + t + '/pedidos/' + uid)).data.status == 'pendente'
+            && !existsAfter(caminho('turmas/' + t + '/pedidos/' + uid))
+            && campos(request.resource.data, ['uid', 'nome', 'papel', 'entrouEm', 'aprovadoPor', 'auditoriaId'],
+                                             ['uid', 'nome', 'papel', 'entrouEm', 'aprovadoPor', 'auditoriaId'])
+            && request.resource.data.papel == 'aluno'
+            && request.resource.data.nome == get(caminho('turmas/' + t + '/pedidos/' + uid)).data.nome
+            && request.resource.data.aprovadoPor == eu()
+            && auditoriaOk(request.resource.data.auditoriaId, 'aluno_aprovado', 'turmas/' + t + '/membros/' + uid);
+        }
+        // Professor entra como professor só na turma que ele mesmo está criando neste lote.
+        function professorCriandoTurma() {
+          return eu() == uid && perfilAtivo('professor')
+            && campos(request.resource.data, ['uid', 'nome', 'papel', 'entrouEm'], ['uid', 'nome', 'papel', 'entrouEm'])
+            && request.resource.data.papel == 'professor'
+            && request.resource.data.nome == meuPerfil().nome
+            && !exists(caminho('turmas/' + t))
+            && getAfter(caminho('turmas/' + t)).data.criadoPor == eu();
+        }
+        // Admin adiciona aluno (com auditoria) ou professor ativo em qualquer turma aberta.
+        function adminAdicionando() {
+          return ehAdmin() && aberta(t)
+            && exists(caminho('usuarios/' + uid))
+            && get(caminho('usuarios/' + uid)).data.status == 'ativo'
+            && request.resource.data.nome == get(caminho('usuarios/' + uid)).data.nome
+            && ((request.resource.data.papel == 'aluno' && get(caminho('usuarios/' + uid)).data.perfil == 'aluno'
+                 && campos(request.resource.data, ['uid', 'nome', 'papel', 'entrouEm', 'auditoriaId'], ['uid', 'nome', 'papel', 'entrouEm', 'auditoriaId'])
+                 && auditoriaOk(request.resource.data.auditoriaId, 'aluno_adicionado', 'turmas/' + t + '/membros/' + uid))
+              || (request.resource.data.papel == 'professor' && get(caminho('usuarios/' + uid)).data.perfil == 'professor'
+                 && campos(request.resource.data, ['uid', 'nome', 'papel', 'entrouEm'], ['uid', 'nome', 'papel', 'entrouEm'])));
+        }
+      }
+
+      // ---------------- pedidos de entrada (o aluno digita o código e espera a aprovação) ----------------
+      match /pedidos/{uid} {
+        allow get: if (verificado() && eu() == uid) || ehAdmin() || profDaTurma(t);
+        allow list: if ehAdmin() || profDaTurma(t);
+
+        // Aluno pede para entrar: código certo, turma aberta, ainda não é membro. Nome, turma e cor vêm de dados reais.
+        allow create: if eu() == uid && pedidoNovoValido();
+        // Pedido recusado: o próprio aluno pode pedir de novo (volta a "pendente", com o código certo).
+        allow update: if (eu() == uid && resource.data.status == 'recusado' && pedidoNovoValido())
+          // Professor da turma / admin recusa (com registro).
+          || ((ehAdmin() || profDaTurma(t)) && aberta(t) && resource.data.status == 'pendente'
+              && mudouSo(['status', 'recusadoEm', 'auditoriaId'])
+              && request.resource.data.status == 'recusado'
+              && request.resource.data.recusadoEm == request.time
+              && auditoriaOk(request.resource.data.auditoriaId, 'aluno_recusado', 'turmas/' + t + '/pedidos/' + uid));
+        // O aluno cancela/dispensa o próprio pedido; professor/admin apagam só ao aprovar (membro criado no mesmo lote).
+        allow delete: if (logado() && eu() == uid)
+          || ((ehAdmin() || profDaTurma(t)) && existsAfter(caminho('turmas/' + t + '/membros/' + uid)));
+
+        function pedidoNovoValido() {
+          return perfilAtivo('aluno') && !ehMembro(t)
+            && campos(request.resource.data, ['uid', 'nome', 'turmaNome', 'turmaCor', 'codigo', 'status', 'pedidoEm'],
+                                             ['uid', 'nome', 'turmaNome', 'turmaCor', 'codigo', 'status', 'pedidoEm'])
+            && request.resource.data.uid == uid
+            && request.resource.data.nome == meuPerfil().nome
+            && request.resource.data.codigo == turma(t).codigo
+            && turma(t).arquivada == false
+            && request.resource.data.turmaNome == turma(t).nome
+            && request.resource.data.turmaCor == turma(t).cor
+            && request.resource.data.status == 'pendente'
+            && request.resource.data.pedidoEm == request.time;
+        }
+      }
+
+      // ---------------- atividades ----------------
+      match /atividades/{a} {
+        allow read: if podeLerTurma(t);
+
+        allow create: if profDaTurma(t) && aberta(t)
+          && campos(request.resource.data,
+               ['titulo', 'descricao', 'prazo', 'notaMax', 'autorUid', 'criadoEm'],
+               ['titulo', 'prazo', 'autorUid', 'criadoEm'])
+          && atividadeValida(request.resource.data)
+          && request.resource.data.autorUid == eu()
+          && request.resource.data.criadoEm == request.time;
+
+        allow update: if ehAutorOuAdmin() && aberta(t)
+          && mudouSo(['titulo', 'descricao', 'prazo', 'reabertaAte', 'notaMax', 'atualizadoEm', 'auditoriaId'])
+          && atividadeValida(request.resource.data)
+          && (!('reabertaAte' in request.resource.data) || request.resource.data.reabertaAte == null
+              || request.resource.data.reabertaAte is timestamp)
+          && request.resource.data.atualizadoEm == request.time
+          // estender prazo e reabrir entrega são auditados (um de cada vez)
+          && (!mudou('prazo') || auditoriaOk(request.resource.data.auditoriaId, 'prazo_alterado', 'turmas/' + t + '/atividades/' + a))
+          && (!mudou('reabertaAte') || auditoriaOk(request.resource.data.auditoriaId, 'entrega_reaberta', 'turmas/' + t + '/atividades/' + a));
+
+        // O app apaga as entregas no mesmo lote (depois de pedir confirmação).
+        allow delete: if ehAutorOuAdmin() && aberta(t);
+
+        function ehAutorOuAdmin() { return ehAdmin() || (profDaTurma(t) && resource.data.autorUid == eu()); }
+        function atividadeValida(d) {
+          return texto(d.titulo, 1, 120)
+            && textoOpcional(d, 'descricao', 5000)
+            && d.prazo is timestamp
+            && (!('notaMax' in d) || (d.notaMax is number && d.notaMax > 0 && d.notaMax <= 100));
+        }
+
+        // Limite para entregar: até "reabertaAte" ou até prazo + 24h, o que for mais tarde.
+        function limiteDeEntrega(at) {
+          return ('reabertaAte' in at && at.reabertaAte != null && at.reabertaAte > at.prazo + duration.value(24, 'h'))
+            ? at.reabertaAte : at.prazo + duration.value(24, 'h');
+        }
+        function atividade() { return get(caminho('turmas/' + t + '/atividades/' + a)).data; }
+        function autorDaAtividade() { return ehAdmin() || (profDaTurma(t) && atividade().autorUid == eu()); }
+
+        // ---------- entregas (id = uid do aluno: uma por aluno) ----------
+        match /entregas/{aluno} {
+          allow get: if ehAdmin() || profDaTurma(t) || (verificado() && eu() == aluno && ehMembro(t));
+          allow list: if ehAdmin() || profDaTurma(t);
+
+          // "create" falha se já existe entrega deste aluno: clique duplo / duas abas não duplicam.
+          allow create: if eu() == aluno && alunoDaTurma(t) && aberta(t)
+            && request.time <= limiteDeEntrega(atividade())
+            && campos(request.resource.data,
+                 ['texto', 'link', 'entregueEm', 'atrasada', 'alunoUid', 'alunoNome', 'corrigida'],
+                 ['entregueEm', 'atrasada', 'alunoUid', 'alunoNome', 'corrigida'])
+            && ('texto' in request.resource.data || 'link' in request.resource.data)
+            && textoOpcional(request.resource.data, 'texto', 5000)
+            && (!('link' in request.resource.data) || (request.resource.data.link is string
+                 && request.resource.data.link.size() <= 500
+                 && request.resource.data.link.matches('^https?://[^\\s<>"]+$')))
+            && request.resource.data.entregueEm == request.time
+            && request.resource.data.atrasada == (request.time > atividade().prazo)
+            && request.resource.data.alunoUid == aluno
+            && request.resource.data.alunoNome == meuPerfil().nome
+            && request.resource.data.corrigida == false;
+
+          // Correção: autor da atividade ou admin, a qualquer hora. Só os campos de correção mudam.
+          allow update: if autorDaAtividade() && aberta(t)
+            && mudouSo(['corrigida', 'corrigidaEm'])
+            && request.resource.data.corrigida is bool
+            && (request.resource.data.corrigida
+                  ? request.resource.data.corrigidaEm == request.time
+                  : !('corrigidaEm' in request.resource.data));
+
+          // Desfazer:
+          //  - a atividade inteira sendo apagada no mesmo lote (autor/admin);
+          //  - o próprio aluno, até 4h depois de entregar (sem outra condição);
+          //  - autor da atividade / admin, a qualquer hora, com auditoria.
+          // Fora a exclusão da atividade, todo desfazer grava "desfeitas/{aluno}" no mesmo lote.
+          allow delete: if (autorDaAtividade() && !existsAfter(caminho('turmas/' + t + '/atividades/' + a)))
+            || (aberta(t) && marcaDesfeita('aluno') && eu() == aluno && alunoDaTurma(t)
+                && request.time < resource.data.entregueEm + duration.value(4, 'h'))
+            || (aberta(t) && autorDaAtividade() && marcaDesfeita(ehAdmin() ? 'admin' : 'professor')
+                && auditoriaOk('entrega_' + t + '_' + a + '_' + aluno + '_' + ms(resource.data.entregueEm),
+                               'entrega_desfeita', 'turmas/' + t + '/atividades/' + a + '/entregas/' + aluno));
+
+          function marcaDesfeita(papel) {
+            return getAfter(caminho('turmas/' + t + '/atividades/' + a + '/desfeitas/' + aluno)).data.desfeitaEm == request.time
+              && getAfter(caminho('turmas/' + t + '/atividades/' + a + '/desfeitas/' + aluno)).data.desfeitaPorPapel == papel;
+          }
+        }
+
+        // ---------- marca de "entrega desfeita" (para o professor ver; esconde a nota do aluno até o professor editar) ----------
+        match /desfeitas/{aluno} {
+          allow read: if ehAdmin() || profDaTurma(t);
+          allow create, update: if aberta(t)
+            && campos(request.resource.data, ['desfeitaEm', 'desfeitaPorUid', 'desfeitaPorPapel'], ['desfeitaEm', 'desfeitaPorUid', 'desfeitaPorPapel'])
+            && request.resource.data.desfeitaEm == request.time
+            && request.resource.data.desfeitaPorUid == eu()
+            && ((request.resource.data.desfeitaPorPapel == 'aluno' && eu() == aluno && alunoDaTurma(t))
+                || (request.resource.data.desfeitaPorPapel == 'professor' && profDaTurma(t))
+                || (request.resource.data.desfeitaPorPapel == 'admin' && ehAdmin()))
+            // só junto com a exclusão da entrega deste aluno
+            && exists(caminho('turmas/' + t + '/atividades/' + a + '/entregas/' + aluno))
+            && !existsAfter(caminho('turmas/' + t + '/atividades/' + a + '/entregas/' + aluno));
+          allow delete: if false;
+        }
+      }
+
+      // ---------------- notas: folha (rascunho/publicada) + um item por aluno ----------------
+      match /notas/{n} {
+        // Aluno só enxerga folhas publicadas (a consulta precisa filtrar publicada == true).
+        allow read: if ehAdmin() || profDaTurma(t) || (alunoDaTurma(t) && resource.data.publicada == true);
+
+        allow create: if profDaTurma(t) && aberta(t)
+          && campos(request.resource.data,
+               ['titulo', 'notaMax', 'atividadeId', 'publicada', 'autorUid', 'criadoEm'],
+               ['titulo', 'notaMax', 'publicada', 'autorUid', 'criadoEm'])
+          && texto(request.resource.data.titulo, 1, 80)
+          && notaMaxValida(request.resource.data.notaMax)
+          && request.resource.data.publicada == false
+          && request.resource.data.autorUid == eu()
+          && request.resource.data.criadoEm == request.time
+          // folha de atividade tem id fixo "atv_{atividadeId}" (uma por atividade)
+          && (('atividadeId' in request.resource.data)
+                ? (request.resource.data.atividadeId is string && n == 'atv_' + request.resource.data.atividadeId
+                   && exists(caminho('turmas/' + t + '/atividades/' + request.resource.data.atividadeId)))
+                : !n.matches('^atv_.*'));
+
+        allow update: if (ehAdmin() || (profDaTurma(t) && resource.data.autorUid == eu())) && aberta(t)
+          && mudouSo(['titulo', 'notaMax', 'publicada', 'publicadaEm', 'auditoriaId'])
+          && texto(request.resource.data.titulo, 1, 80)
+          && notaMaxValida(request.resource.data.notaMax)
+          && request.resource.data.publicada is bool
+          && ((request.resource.data.publicada == resource.data.publicada && !mudou('publicadaEm'))
+              // publicar
+              || (resource.data.publicada == false && request.resource.data.publicada == true
+                  && request.resource.data.publicadaEm == request.time)
+              // despublicar (com auditoria)
+              || (resource.data.publicada == true && request.resource.data.publicada == false
+                  && request.resource.data.get('publicadaEm', null) == null
+                  && auditoriaOk(request.resource.data.auditoriaId, 'notas_despublicadas', 'turmas/' + t + '/notas/' + n)));
+        // Apagar: SÓ rascunho (nunca publicada), pelo autor ou admin, turma aberta, com registro de id fixo.
+        // O site apaga as notas (itens) da folha no mesmo lote.
+        allow delete: if (ehAdmin() || (profDaTurma(t) && resource.data.autorUid == eu())) && aberta(t)
+          && resource.data.publicada == false
+          && auditoriaOk('folha_apagada_' + t + '_' + n + '_' + ms(resource.data.criadoEm), 'notas_apagadas', 'turmas/' + t + '/notas/' + n);
+
+        function notaMaxValida(v) { return v is number && v > 0 && v <= 100; }
+        function folha() { return get(caminho('turmas/' + t + '/notas/' + n)).data; }
+
+        match /itens/{aluno} {
+          allow get: if ehAdmin() || profDaTurma(t) || (eu() == aluno && alunoDaTurma(t) && notaVisivelParaAluno());
+          allow list: if ehAdmin() || profDaTurma(t);
+
+          // Só o autor da folha ou o admin escrevem notas, a qualquer hora. O aluno nunca escreve nem apaga.
+          allow create, update: if (ehAdmin() || (profDaTurma(t) && folha().autorUid == eu())) && aberta(t)
+            && campos(request.resource.data, ['valor', 'comentario', 'atualizadoEm'], ['valor', 'atualizadoEm'])
+            && request.resource.data.valor is number
+            && request.resource.data.valor >= 0
+            && request.resource.data.valor <= folha().notaMax
+            && textoOpcional(request.resource.data, 'comentario', 500)
+            && request.resource.data.atualizadoEm == request.time;
+          allow delete: if (ehAdmin() || (profDaTurma(t) && folha().autorUid == eu())) && aberta(t);
+
+          // O aluno vê a própria nota quando a folha está publicada e, se a folha é de uma atividade:
+          //  - não há entrega dele, ou ela já tem 4h ou mais; e
+          //  - não há marca de "entrega desfeita" mais nova que a última edição da nota.
+          function notaVisivelParaAluno() {
+            return folha().publicada == true
+              && (!('atividadeId' in folha()) || (entregaJaLiberada(folha().atividadeId) && semDesfeitaPendente(folha().atividadeId)));
+          }
+          function entregaJaLiberada(at) {
+            return !exists(caminho('turmas/' + t + '/atividades/' + at + '/entregas/' + aluno))
+              || get(caminho('turmas/' + t + '/atividades/' + at + '/entregas/' + aluno)).data.entregueEm + duration.value(4, 'h') <= request.time;
+          }
+          function semDesfeitaPendente(at) {
+            return !exists(caminho('turmas/' + t + '/atividades/' + at + '/desfeitas/' + aluno))
+              || get(caminho('turmas/' + t + '/atividades/' + at + '/desfeitas/' + aluno)).data.desfeitaEm < resource.data.atualizadoEm;
+          }
+        }
+      }
+
+      // ---------------- chat da turma ----------------
+      match /mensagens/{m} {
+        allow read: if podeLerTurma(t);
+        allow create: if aberta(t)
+          && campos(request.resource.data,
+               ['texto', 'autorUid', 'autorNome', 'autorPapel', 'criadoEm'],
+               ['texto', 'autorUid', 'autorNome', 'autorPapel', 'criadoEm'])
+          && texto(request.resource.data.texto, 1, 2000)
+          && request.resource.data.autorUid == eu()
+          && request.resource.data.criadoEm == request.time
+          // a etiqueta do autor vem de dados reais: ninguém esconde nem falsifica
+          && ((request.resource.data.autorPapel == 'professor' && profDaTurma(t))
+              || (request.resource.data.autorPapel == 'representante' && alunoDaTurma(t) && ehRepresentante())
+              || (request.resource.data.autorPapel == 'aluno' && alunoDaTurma(t) && !ehRepresentante()))
+          && request.resource.data.autorNome == meuPerfil().nome;
+        allow update: if false;
+        // Professor da turma ou admin apagam (o documento some), com auditoria.
+        allow delete: if (ehAdmin() || profDaTurma(t)) && aberta(t)
+          && auditoriaOk('mensagem_' + t + '_' + m, 'mensagem_removida', 'turmas/' + t + '/mensagens/' + m);
+      }
+
+      // ---------------- avisos da turma ----------------
+      match /avisos/{v} {
+        allow read: if podeLerTurma(t);
+        allow create: if profDaTurma(t) && aberta(t)
+          && campos(request.resource.data,
+               ['texto', 'autorUid', 'autorNome', 'autorPapel', 'criadoEm'],
+               ['texto', 'autorUid', 'autorNome', 'autorPapel', 'criadoEm'])
+          && texto(request.resource.data.texto, 1, 2000)
+          && request.resource.data.autorUid == eu()
+          && request.resource.data.autorNome == meuPerfil().nome
+          && request.resource.data.autorPapel == 'professor'
+          && request.resource.data.criadoEm == request.time;
+        allow update: if autorDoAvisoOuAdmin() && aberta(t)
+          && mudouSo(['texto', 'editadoEm', 'auditoriaId'])
+          && texto(request.resource.data.texto, 1, 2000)
+          && request.resource.data.editadoEm == request.time
+          && auditoriaOk(request.resource.data.auditoriaId, 'aviso_editado', 'turmas/' + t + '/avisos/' + v);
+        allow delete: if autorDoAvisoOuAdmin() && aberta(t)
+          && auditoriaOk('aviso_apagado_turma_' + t + '_' + v, 'aviso_apagado', 'turmas/' + t + '/avisos/' + v);
+
+        function autorDoAvisoOuAdmin() { return ehAdmin() || (profDaTurma(t) && resource.data.autorUid == eu()); }
+      }
+    }
+
+    // Cada pessoa lista as próprias turmas: consulta "membros where uid == eu" em todas as turmas.
+    match /{caminhoQualquer=**}/membros/{uid} {
+      allow list: if verificado() && resource.data.uid == request.auth.uid;
+    }
+    // O aluno lista os próprios pedidos de entrada: consulta "pedidos where uid == eu".
+    match /{caminhoQualquer=**}/pedidos/{uid} {
+      allow list: if verificado() && resource.data.uid == request.auth.uid;
+    }
+
+    // ===================================================================
+    // Conversas privadas professor <-> aluno (id = "{professorUid}_{alunoUid}")
+    // ===================================================================
+
+    match /conversas/{c} {
+      // Pela própria id já dá para saber se a pessoa participa (funciona mesmo antes de a conversa existir).
+      allow get: if ehAdmin() || (verificado() && eu() in c.split('_'));
+      allow list: if ehAdmin() || (verificado() && eu() in resource.data.participantes);
+
+      // Só entre professor e aluno que estão numa mesma turma (aberta). Não existe conversa aluno <-> aluno.
+      allow create: if campos(request.resource.data,
+            ['professorUid', 'alunoUid', 'participantes', 'professorNome', 'alunoNome', 'turmaId', 'criadoEm', 'atualizadoEm'],
+            ['professorUid', 'alunoUid', 'participantes', 'professorNome', 'alunoNome', 'turmaId', 'criadoEm', 'atualizadoEm'])
+        && c == request.resource.data.professorUid + '_' + request.resource.data.alunoUid
+        && request.resource.data.participantes == [request.resource.data.professorUid, request.resource.data.alunoUid]
+        && ((eu() == request.resource.data.professorUid && perfilAtivo('professor'))
+            || (eu() == request.resource.data.alunoUid && perfilAtivo('aluno')))
+        && request.resource.data.criadoEm == request.time
+        && request.resource.data.atualizadoEm == request.time
+        && request.resource.data.turmaId is string
+        && pessoaConfere(request.resource.data.professorUid, 'professor', request.resource.data.professorNome)
+        && pessoaConfere(request.resource.data.alunoUid, 'aluno', request.resource.data.alunoNome)
+        && aberta(request.resource.data.turmaId)
+        && papelNaTurma(request.resource.data.turmaId, request.resource.data.professorUid) == 'professor'
+        && papelNaTurma(request.resource.data.turmaId, request.resource.data.alunoUid) == 'aluno';
+
+      // Ao mandar mensagem, o participante atualiza só a hora da última atividade.
+      allow update: if verificado() && eu() in resource.data.participantes
+        && mudouSo(['atualizadoEm'])
+        && request.resource.data.atualizadoEm == request.time;
+      allow delete: if false;
+
+      function pessoaConfere(uid, perfil, nome) {
+        return get(caminho('usuarios/' + uid)).data.perfil == perfil
+          && get(caminho('usuarios/' + uid)).data.status == 'ativo'
+          && get(caminho('usuarios/' + uid)).data.nome == nome;
+      }
+      function papelNaTurma(t, uid) { return get(caminho('turmas/' + t + '/membros/' + uid)).data.papel; }
+      function participo() { return verificado() && eu() in get(caminho('conversas/' + c)).data.participantes; }
+
+      match /mensagens/{m} {
+        allow read: if ehAdmin() || participo();
+        allow create: if participo() && temPerfil() && meuPerfil().status == 'ativo'
+          && campos(request.resource.data, ['texto', 'autorUid', 'autorNome', 'criadoEm'], ['texto', 'autorUid', 'autorNome', 'criadoEm'])
+          && texto(request.resource.data.texto, 1, 2000)
+          && request.resource.data.autorUid == eu()
+          && request.resource.data.autorNome == meuPerfil().nome
+          && request.resource.data.criadoEm == request.time;
+        allow update: if false;
+        // Só o admin apaga mensagens privadas, com auditoria.
+        allow delete: if ehAdmin()
+          && auditoriaOk('mensagem_conversa_' + c + '_' + m, 'mensagem_removida', 'conversas/' + c + '/mensagens/' + m);
+      }
+    }
+
+    // ===================================================================
+    // Registro de alterações: só acrescenta; só o admin lê
+    // ===================================================================
+
+    match /auditoria/{id} {
+      allow read: if ehAdmin();
+      allow create: if podeAuditar(request.resource.data.acao) && registroValido(request.resource.data);
+      allow update, delete: if false;
+
+      function podeAuditar(acao) {
+        return ehAdmin() || perfilAtivo('professor')
+          || (perfilAtivo('aluno') && ehRepresentante() && acao in ['aviso_editado', 'aviso_apagado']);
+      }
+      function registroValido(d) {
+        return campos(d, ['acao', 'autorUid', 'autorNome', 'turmaId', 'alvo', 'detalhes', 'criadoEm'],
+                         ['acao', 'autorUid', 'autorNome', 'alvo', 'detalhes', 'criadoEm'])
+          && d.acao in ['prazo_alterado', 'entrega_reaberta', 'entrega_desfeita', 'mensagem_removida',
+                        'professor_aprovado', 'aluno_adicionado', 'aluno_removido', 'aluno_aprovado', 'aluno_recusado', 'turma_arquivada',
+                        'turma_desarquivada', 'notas_despublicadas', 'notas_apagadas', 'aviso_editado', 'aviso_apagado',
+                        'representante_adicionado', 'representante_removido']
+          && d.autorUid == eu()
+          && d.autorNome == meuNome()
+          && (!('turmaId' in d) || texto(d.turmaId, 1, 128))
+          && texto(d.alvo, 1, 300)
+          && d.detalhes is string && d.detalhes.size() <= 500
+          && d.criadoEm == request.time;
+      }
+    }
+  }
+}

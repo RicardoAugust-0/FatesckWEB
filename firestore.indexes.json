@@ -1,0 +1,34 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "auditoria", "queryScope": "COLLECTION",
+      "fields": [ { "fieldPath": "acao", "order": "ASCENDING" }, { "fieldPath": "criadoEm", "order": "DESCENDING" } ]
+    },
+    {
+      "collectionGroup": "auditoria", "queryScope": "COLLECTION",
+      "fields": [ { "fieldPath": "turmaId", "order": "ASCENDING" }, { "fieldPath": "criadoEm", "order": "DESCENDING" } ]
+    },
+    {
+      "collectionGroup": "auditoria", "queryScope": "COLLECTION",
+      "fields": [ { "fieldPath": "acao", "order": "ASCENDING" }, { "fieldPath": "turmaId", "order": "ASCENDING" }, { "fieldPath": "criadoEm", "order": "DESCENDING" } ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "membros",
+      "fieldPath": "uid",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "fieldPath": "uid",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}
