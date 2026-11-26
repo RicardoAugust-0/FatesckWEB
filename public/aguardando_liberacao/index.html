@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#A61C24">
+    <title>Fatesck - Aguardando liberação</title>
+    <link rel="manifest" href="../manifest.webmanifest">
+    <link rel="icon" type="image/png" href="../midia/icones/icone-192.png">
+    <link rel="apple-touch-icon" href="../midia/icones/apple-touch-icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="../css/base.css">
+    <script src="../js/core/tema-inicial.js"></script>
+    <script type="module" src="../js/core/pwa.js"></script>
+</head>
+<body>
+    <main class="entrada">
+        <div class="cartao-entrada">
+            <img src="../midia/logo.png" alt="Fatesck" class="logo">
+            <h1>Aguardando liberação</h1>
+            <p class="mudo" id="texto">Sua conta de professor foi criada. A administração do curso precisa liberar seu acesso.</p>
+            <p class="mudo pequeno">Conferindo automaticamente a cada 10 segundos.</p>
+            <p class="erro" id="erro" role="alert"></p>
+            <p class="sucesso" id="status" role="status"></p>
+            <div class="acoes">
+                <button type="button" class="botao" id="btn-verificar">Verificar novamente</button>
+                <button type="button" class="botao sec" id="btn-sair">Sair</button>
+            </div>
+        </div>
+    </main>
+    <script type="module" src="script.js"></script>
+</body>
+</html>

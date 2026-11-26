@@ -13,7 +13,7 @@ import { initializeApp, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp as TimestampAdmin } from "firebase-admin/firestore";
 import { Timestamp } from "firebase/firestore";
-import { configDemo } from "../js/config-demo.js";
+import { configDemo } from "../public/js/core/config-demo.js";
 import { RAIZ } from "./firebase-cli.mjs";
 import { montarEscritas, conferir, CONTAS, SENHA_TESTE, resumoContas } from "./seed.mjs";
 
@@ -21,14 +21,14 @@ const PROJETO_REAL = "fatesk-3819c";
 const parar = msg => { console.error("\n[seed:demo] " + msg + "\n"); process.exit(1); };
 
 // ----- conferências de segurança -----
-if (!configDemo?.projectId) parar("Preencha js/config-demo.js com a configuração do projeto de demonstração.");
-if (configDemo.projectId === PROJETO_REAL) parar("js/config-demo.js aponta para o projeto REAL. Use um projeto só de demonstração.");
+if (!configDemo?.projectId) parar("Preencha public/js/core/config-demo.js com a configuração do projeto de demonstração.");
+if (configDemo.projectId === PROJETO_REAL) parar("public/js/core/config-demo.js aponta para o projeto REAL. Use um projeto só de demonstração.");
 const caminhoChave = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 if (!caminhoChave || !existsSync(caminhoChave)) parar("Defina GOOGLE_APPLICATION_CREDENTIALS com o caminho da chave .json do projeto de demonstração.");
 const rel = relative(RAIZ, resolve(caminhoChave));
 if (!rel.startsWith("..") && !isAbsolute(rel)) parar("A chave .json está DENTRO da pasta do projeto. Mova para fora (ela é segredo).");
 const chave = JSON.parse(readFileSync(caminhoChave, "utf8"));
-if (chave.project_id !== configDemo.projectId) parar(`A chave é do projeto "${chave.project_id}", mas js/config-demo.js é do "${configDemo.projectId}".`);
+if (chave.project_id !== configDemo.projectId) parar(`A chave é do projeto "${chave.project_id}", mas public/js/core/config-demo.js é do "${configDemo.projectId}".`);
 if (chave.project_id === PROJETO_REAL) parar("A chave é do projeto REAL. Use a chave do projeto de demonstração.");
 
 conferir();

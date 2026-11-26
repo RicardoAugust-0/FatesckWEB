@@ -1,11 +1,11 @@
 // Funções do site que não dependem do Firebase: esc(), datas em São Paulo, durações e situação de prazos.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { esc } from "../js/ui.js";
-import { quando, dataHora, duracao, hojeExtenso, diaMesHora, msDeCampos, camposDeMs } from "../js/datas.js";
+import { esc } from "../public/js/ui/ui.js";
+import { quando, dataHora, duracao, hojeExtenso, diaMesHora, msDeCampos, camposDeMs } from "../public/js/utils/datas.js";
 import {
   situacao, limiteDeEntrega, chipDePrazo, restanteParaDesfazer, lerNotaMaxima, linkValido, ordenarAtividades, chaveRascunho
-} from "../js/prazos.js";
+} from "../public/js/utils/prazos.js";
 
 const H = 3600e3;
 
@@ -124,7 +124,7 @@ describe("ordem das listas de atividades", () => {
 });
 
 // ---------- Fase 6 ----------
-import { lerNota, formatarNota, media, tituloDaFolha, idFolhaDaAtividade } from "../js/notas-util.js";
+import { lerNota, formatarNota, media, tituloDaFolha, idFolhaDaAtividade } from "../public/js/utils/notas-util.js";
 
 describe("notas: digitar, mostrar e média", () => {
   test("aceita vírgula ou ponto, até 2 casas; vazio = sem nota; fora da faixa recusa", () => {
@@ -152,7 +152,7 @@ describe("notas: digitar, mostrar e média", () => {
 
 // ---------- Fase 7a ----------
 import { readFileSync } from "node:fs";
-import { ACOES, nomeDaAcao, opcoesDeAcao } from "../js/auditoria-util.js";
+import { ACOES, nomeDaAcao, opcoesDeAcao } from "../public/js/utils/auditoria-util.js";
 
 describe("registro de alterações: nome em português de cada ação", () => {
   test("toda ação aceita pelas regras tem nome em português (e nenhuma sobra)", () => {

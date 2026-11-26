@@ -5,8 +5,8 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { RAIZ } from "./firebase-cli.mjs";
 
-const LOGO = join(RAIZ, "midia", "logo.png");
-const SAIDA = join(RAIZ, "midia", "icones");
+const LOGO = join(RAIZ, "public", "midia", "logo.png");
+const SAIDA = join(RAIZ, "public", "midia", "icones");
 mkdirSync(SAIDA, { recursive: true });
 
 // largura da logo em relação ao quadrado. "maskable" usa margem maior (área segura dos ícones adaptáveis do Android).

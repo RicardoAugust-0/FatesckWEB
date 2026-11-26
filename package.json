@@ -4,7 +4,7 @@
   "private": true,
   "description": "Portal acadêmico Fatesck (HTML, CSS e JavaScript + Firebase)",
   "scripts": {
-    "start": "live-server",
+    "start": "live-server public",
     "emulators": "node scripts/emuladores.mjs",
     "seed": "node scripts/seed.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",

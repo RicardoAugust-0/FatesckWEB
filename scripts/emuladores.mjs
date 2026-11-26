@@ -1,12 +1,13 @@
 // npm run emulators — sobe os emuladores (Authentication + Firestore + painel) e serve o site.
 // Tudo local: projeto falso "demo-fatesck". Nada chega ao Firebase real.
+import { join } from "node:path";
 import { RAIZ, rodarFirebase } from "./firebase-cli.mjs";
 import { iniciarServidor } from "./servidor.mjs";
 import { HOST, PORTA_SITE, PORTA_UI } from "./config.mjs";
 
 let servidor;
 try {
-  servidor = await iniciarServidor(RAIZ);
+  servidor = await iniciarServidor(join(RAIZ, "public"));
 } catch (e) {
   console.error(`[fatesck] Não foi possível abrir o site na porta ${PORTA_SITE}: ${e.code === "EADDRINUSE" ? "a porta já está em uso (os emuladores já estão rodando em outra janela?)" : e.message}`);
   process.exit(1);

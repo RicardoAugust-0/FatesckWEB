@@ -6,7 +6,7 @@ import {
   doc, getDoc, getDocs, setDoc, deleteDoc, collection, query, where, orderBy, limitToLast, Timestamp
 } from "firebase/firestore";
 import { prepararTestes, como, ok, nega, agora, registrar, lote, semRegras, NOMES } from "./apoio.mjs";
-import { rotuloPapel } from "../js/componentes.js";
+import { rotuloPapel } from "../public/js/ui/componentes.js";
 
 prepararTestes();
 
