@@ -5,6 +5,8 @@ import { quando, ms } from "../utils/datas.js";
 import { banner, botaoBanner, card, chip, itemAviso, primeiroNome, comCorDaTurma } from "../ui/componentes.js";
 import { avisosDaTurma, avisosDoCurso, idsRepresentantes, minhasLeituras } from "../servicos/dados.js";
 import { carregarProfessor } from "./professor-comum.js";
+import { carregarDiagnosticoProfessor } from "../servicos/acompanhamento.js";
+import { cardAlunosEmAtencao, cardAlunosEmAtencaoCarregando } from "../ui/alertas-ui.js";
 
 const MOSTRAR = 5;
 
@@ -19,13 +21,34 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
   });
   const corrigirCard = card({ titulo: "Atividades para corrigir", classe: "lista-cards", corpo: esqueletoLinhas(3) });
   const avisosCard = card({ titulo: "Avisos recentes", corpo: esqueletoLinhas(2) });
-  conteudo.replaceChildren(topo,
+  // Acompanhamento acadêmico: "Alunos que exigem atenção" acima da grade (carrega à parte, sem atrasar o resto).
+  let atencaoCard = cardAlunosEmAtencaoCarregando();
+  conteudo.replaceChildren(topo, atencaoCard,
     el("h2", { class: "so-movel cabeca-secao", style: { margin: "18px 0 10px" } }, "Atividades para corrigir"),
     el("div", { class: "grade-inicio" }, corrigirCard, avisosCard));
 
+  // Subtítulo do cabeçalho do celular: atividades para corrigir + alunos em alerta (o que já tiver chegado).
+  let paraCorrigirN = null, emAlertaN = null;
+  function atualizarCabecalho() {
+    const partes = [];
+    if (paraCorrigirN !== null) partes.push(paraCorrigirN
+      ? `${paraCorrigirN} ${paraCorrigirN === 1 ? "atividade" : "atividades"} para corrigir` : "Tudo corrigido");
+    if (emAlertaN) partes.push(`${emAlertaN} ${emAlertaN === 1 ? "aluno em alerta" : "alunos em alerta"}`);
+    if (partes.length) definirCabecalhoMovel(`Olá, ${nome}`, partes.join(" · "));
+  }
+
   const uid = sessao.uid;
+  const pDados = carregarProfessor(uid);
+  pDados
+    .then(d => carregarDiagnosticoProfessor(d.turmas.map(x => x.t)))
+    .then(diag => { emAlertaN = diag.alunosEmAlerta.length; return diag; }, e => { console.error(e); return null; })
+    .then(diag => {
+      const novo = cardAlunosEmAtencao(sessao, diag, { href });
+      atencaoCard.replaceWith(novo); atencaoCard = novo;
+      atualizarCabecalho();
+    });
   const [dados, leituras, avisosCurso, representantes] = await Promise.all([
-    carregarProfessor(uid), minhasLeituras(uid), avisosDoCurso(5), idsRepresentantes()
+    pDados, minhasLeituras(uid), avisosDoCurso(5), idsRepresentantes()
   ]);
   const { turmas, atividadesParaCorrigir, msgsNaoLidas } = dados;
   const turmasPorId = Object.fromEntries(turmas.map(x => [x.t.id, x.t]));
@@ -36,9 +59,8 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
   topo.atualizar(0, String(turmas.length), turmas.length === 1 ? "Turma ativa" : "Turmas ativas");
   topo.atualizar(1, String(lista.length));
   topo.atualizar(2, String(msgsNaoLidas));
-  definirCabecalhoMovel(`Olá, ${nome}`, lista.length
-    ? `${lista.length} ${lista.length === 1 ? "atividade" : "atividades"} para corrigir`
-    : "Tudo corrigido");
+  paraCorrigirN = lista.length;
+  atualizarCabecalho();
   definirContador("chat", msgsNaoLidas);
 
   // ----- atividades para corrigir (as 5 mais antigas) -----
