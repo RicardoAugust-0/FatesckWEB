@@ -108,6 +108,14 @@ Fatesck = FATEC "Projeto Integrador" (ADS): replacement for MS Teams for the col
 - Seed: the archived class Algoritmos (`turma-alg`) has 4 old class-chat messages (teacher, student, representative) to test the read-only screen.
 - No rules change was needed in 7b.
 
+**Academic monitoring (branch `feat/acompanhamento-academico`, approved by Fernando 2026-11-26)**
+- Levels: "Risco de reprovação" (critico), "Exige atenção" (atencao), "Situação regular" (regular), "Aguardando avaliações" (sem_dados). Color is never the only signal (icon + text).
+- Average = only published sheets, grades normalized to 0–10, rounded to 1 decimal before classifying. **No weights** (fallback weight = 1; no weight field).
+- **Missed activities closed before the student joined the class (`entrouEm`) don't count.** Late-delivery motivo only when ≥2.
+- Teacher Início: card "Alunos que exigem atenção" (filters, 5 rows + "Ver todos", "Chamar no Chat" opens/creates the private conversation, "Ver turma" → `#alunos`) + "Raio-X das Turmas" dialog (**links to plain `href("notas")`**); the 3 banner blocks unchanged, alert count in the card header and phone subtitle. "Minhas turmas": health chips per active class.
+- **Student sees their own average** on the Início panel "Sua situação" (alerts, "Tudo em dia · média geral X") + chip "Média X · …" on each class card.
+- Files: `js/servicos/acompanhamento.js` (pure calculations + loaders, no static Firebase imports → tested in Node), `js/ui/alertas-ui.js`, `css/acompanhamento.css` (own `--acomp-*` variables, injected by alertas-ui), `tests/acompanhamento.test.mjs` (35 tests; 423 total). No rules/index change.
+
 **Representatives & authorship**
 - `representantes/{alunoUid}`: only admin adds/removes (audited); **no limit** on how many. Readable by active users.
 - Course-wide notices `avisosCurso`: posted by an active representative or admin; edited/deleted (audited) by their author while still a representative, or by admin. Visible to all active users, mixed with class notices (no separate area).

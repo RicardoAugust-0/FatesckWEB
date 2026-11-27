@@ -11,6 +11,8 @@ import {
   minhasTurmas, professoresDaTurma, atividadesDaTurma, minhaEntrega, minhasLeituras, avisosDaTurma, avisosDoCurso,
   idsRepresentantes, naoLidasDaTurma, naoLidasPrivadas, meusPedidos
 } from "../servicos/dados.js";
+import { carregarDiagnosticoAluno, resumirAluno } from "../servicos/acompanhamento.js";
+import { painelSituacaoAluno, painelSituacaoAlunoCarregando, chipSituacaoNaTurma } from "../ui/alertas-ui.js";
 
 const MOSTRAR = 3;        // computador: as 3 que fecham primeiro (prévia, tela 1)
 const MOSTRAR_MOVEL = 2;  // celular: as 2 primeiras + "Ver todas as atividades (+N)" (prévia, tela 3)
@@ -26,11 +28,13 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
     blocos: ["Atividades abertas", "Próxima a fechar", "Novidades"]
   });
   const avisoMovel = el("div", { class: "so-movel" });
+  // Acompanhamento acadêmico: painel "Sua situação" logo abaixo do banner (computador e celular).
+  let painel = painelSituacaoAlunoCarregando();
   const pendentesCard = card({ titulo: "Atividades pendentes", classe: "lista-cards", corpo: esqueletoLinhas(3) });
   const avisosCard = card({ titulo: "Avisos recentes", classe: "so-desktop", corpo: esqueletoLinhas(2) });
   const grade = el("div", { class: "grade-turmas" }, esqueletoTurmas(4));
   conteudo.replaceChildren(
-    topo, avisoMovel,
+    topo, painel, avisoMovel,
     el("h2", { class: "so-movel cabeca-secao", style: { margin: "18px 0 10px" } }, "Atividades pendentes"),
     el("div", { class: "grade-inicio" }, pendentesCard, avisosCard),
     cabecaSecao("Minhas turmas", el("a", { class: "link-simples", href: href("turmas") }, "Ver todas")),
@@ -51,6 +55,12 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
     const entregas = await Promise.all(atividades.map(a => minhaEntrega(t.id, a.id, uid)));
     return { t, atividades: atividades.map((a, i) => ({ ...a, entrega: entregas[i], turmaNome: t.nome, turmaCor: t.cor })), profs, avisos, msgs };
   }));
+  // Diagnóstico do aluno: reaproveita as atividades (com a própria entrega) já carregadas acima; roda em paralelo.
+  // Se falhar, o painel some e o resto da página continua normal.
+  let situacaoAluno = null;
+  const trocarPainel = novo => { painel.replaceWith(novo); painel = novo; };
+  const pDiagnostico = carregarDiagnosticoAluno(uid, porTurma.map(p => ({ turma: p.t, atividades: p.atividades })))
+    .catch(e => { console.error(e); return null; });
   const msgsPrivadas = await naoLidasPrivadas(uid, leituras);
 
   // ----- cálculos -----
@@ -137,6 +147,8 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
       if (novas) chips.push({ texto: `${novas} ${novas === 1 ? "nova atividade" : "novas atividades"}`, classe: "chip contorno" });
       if (msgs) chips.push({ texto: `${msgs} ${msgs === 1 ? "msg" : "msgs"}`, icone: "balao" });
       if (!chips.length) chips.push({ texto: "Em dia", icone: "check" });
+      const chipMedia = chipSituacaoNaTurma(situacaoAluno?.turmas.find(x => x.turma.id === t.id));
+      if (chipMedia) chips.push(chipMedia);
       return cardTurma({ turma: t, subtitulo: profs.map(p => p.nome).join(", ") || "Sem professor", chips,
         href: hrefTurma(t), aoMais: menuAluno(t, hrefTurma(t)) });
     }));
@@ -147,6 +159,22 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
   definirContador("chat", msgsNaoLidas);
   definirContador("avisos", avisosNovos.length);
 
-  // contagem regressiva: atualiza a cada minuto
-  setInterval(() => { atualizarResumo(); desenharPendentes(); }, 60000);
+  // painel "Sua situação" + chip da própria média nos cards das turmas
+  function desenharPainel() {
+    if (!situacaoAluno) return;
+    if (!turmas.length) { trocarPainel(el("div", { hidden: true })); return; }
+    try { trocarPainel(painelSituacaoAluno(situacaoAluno, { href })); }
+    catch (e) { console.error(e); trocarPainel(el("div", { hidden: true })); }
+  }
+  pDiagnostico.then(r => {
+    if (!r) { trocarPainel(el("div", { hidden: true })); return; }
+    situacaoAluno = r;
+    desenharPainel(); desenharTurmas();
+  });
+
+  // contagem regressiva: atualiza a cada minuto (o painel recalcula com a hora nova, sem buscar dados de novo)
+  setInterval(() => {
+    atualizarResumo(); desenharPendentes();
+    if (situacaoAluno) { situacaoAluno = { base: situacaoAluno.base, ...resumirAluno(situacaoAluno.base, Date.now()) }; desenharPainel(); }
+  }, 60000);
 }

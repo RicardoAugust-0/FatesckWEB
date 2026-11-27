@@ -1,0 +1,84 @@
+/* Acompanhamento acadêmico (alertas de risco/atenção). Carregado por js/ui/alertas-ui.js.
+   Variáveis próprias (--acomp-*): nada do base.css é sobrescrito.
+   O vermelho de "risco" é o institucional (--accentText / --accentSoft). A cor nunca é o único sinal (sempre ícone + texto). */
+:root, :root[data-tema="claro"] {
+  --acomp-critico: var(--accentText);
+  --acomp-critico-fundo: var(--accentSoft);
+  --acomp-atencao: #B45309;
+  --acomp-atencao-fundo: #FDF3E1;
+  --acomp-regular: #1F7A66;
+  --acomp-regular-fundo: #E5F3EF;
+  --acomp-aguardando: var(--text2);
+  --acomp-aguardando-fundo: var(--chip);
+}
+:root[data-tema="escuro"] {
+  --acomp-critico: var(--accentText);
+  --acomp-critico-fundo: var(--accentSoft);
+  --acomp-atencao: #FBBF24;
+  --acomp-atencao-fundo: #2A2110;
+  --acomp-regular: #34D399;
+  --acomp-regular-fundo: #0F2620;
+  --acomp-aguardando: var(--text2);
+  --acomp-aguardando-fundo: var(--chip);
+}
+
+/* cores por nível (texto + fundo suave) */
+.acomp-critico { --acomp-cor: var(--acomp-critico); --acomp-fundo: var(--acomp-critico-fundo); }
+.acomp-atencao { --acomp-cor: var(--acomp-atencao); --acomp-fundo: var(--acomp-atencao-fundo); }
+.acomp-regular { --acomp-cor: var(--acomp-regular); --acomp-fundo: var(--acomp-regular-fundo); }
+.acomp-sem_dados { --acomp-cor: var(--acomp-aguardando); --acomp-fundo: var(--acomp-aguardando-fundo); }
+
+/* selo do nível: ícone + texto */
+.acomp-selo { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  line-height: 1.5; white-space: nowrap; color: var(--acomp-cor); background: var(--acomp-fundo); box-shadow: inset 0 0 0 1px var(--acomp-cor); }
+.acomp-selo .icone { width: 14px; height: 14px; }
+.chip.acomp-chip { color: var(--acomp-cor); background: var(--acomp-fundo); box-shadow: inset 0 0 0 1px var(--acomp-cor); font-weight: 600; }
+
+/* card "Alunos que exigem atenção" */
+.acomp-card { margin-top: 28px; }
+.acomp-card > .card-cabeca { flex-wrap: wrap; }
+.acomp-cabeca-acoes { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.acomp-filtros { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.acomp-filtro { min-height: 36px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text2); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.acomp-filtro:hover { background: var(--surface2); color: var(--text); }
+.acomp-filtro[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.acomp-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.acomp-chips .chip { white-space: normal; }
+.acomp-vazio-positivo { color: var(--acomp-regular); font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+/* Raio-X das Turmas */
+.acomp-raiox { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.acomp-raiox-info { flex: 1; gap: 4px; }
+.acomp-barra { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--chip); margin-top: 6px; max-width: 420px; gap: 2px; }
+.acomp-seg { flex-basis: 0; background: var(--acomp-cor); }
+.acomp-legenda { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; font-weight: 600; }
+.acomp-leg { display: inline-flex; align-items: center; gap: 4px; color: var(--acomp-cor); }
+.acomp-leg .icone { width: 14px; height: 14px; }
+
+/* painel "Sua situação" (Início do aluno) */
+.acomp-painel { margin-top: 18px; background: var(--surface); border: 1px solid var(--border); border-left: 6px solid var(--acomp-cor, var(--border));
+  border-radius: var(--raio-card); padding: 16px 20px; display: grid; gap: 12px; box-shadow: var(--sombra); }
+.acomp-painel-critico { --acomp-cor: var(--acomp-critico); --acomp-fundo: var(--acomp-critico-fundo); }
+.acomp-painel-atencao { --acomp-cor: var(--acomp-atencao); --acomp-fundo: var(--acomp-atencao-fundo); }
+.acomp-painel-regular { --acomp-cor: var(--acomp-regular); --acomp-fundo: var(--acomp-regular-fundo); }
+.acomp-painel-sem_dados { --acomp-cor: var(--acomp-aguardando); --acomp-fundo: var(--acomp-aguardando-fundo); }
+.acomp-painel .acomp-selo { font-size: 13px; padding: 4px 12px; }
+.acomp-painel-topo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.acomp-alertas { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.acomp-alertas li { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; color: var(--text); }
+.acomp-alertas li .icone { color: var(--acomp-cor); width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; }
+.acomp-mais { margin-top: -4px; }
+.acomp-painel-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* celular */
+@media (max-width: 520px) {
+  .acomp-card { margin-top: 16px; }
+  .acomp-card > .card-cabeca { padding: 14px 16px; }
+  .acomp-filtros { padding: 12px 16px; }
+  .acomp-linha, .acomp-raiox-linha { flex-direction: column; align-items: stretch; }
+  .acomp-linha .linha-acoes, .acomp-raiox-linha .linha-acoes { justify-content: flex-start; }
+  .acomp-linha .linha-acoes .botao, .acomp-raiox-linha .linha-acoes .botao { flex: 1; }
+  .acomp-painel { margin-top: 14px; padding: 14px 16px; }
+  .acomp-painel-acoes .botao { flex: 1 1 100%; }
+}

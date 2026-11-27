@@ -4,6 +4,8 @@ import { el, esqueletoTurmas, toast } from "../ui/ui.js";
 import { banner, botaoBanner, cardTurma } from "../ui/componentes.js";
 import { carregarProfessor } from "./professor-comum.js";
 import { painelNovaTurma, menuProfessor } from "../ui/turmas-ui.js";
+import { carregarDiagnosticoProfessor } from "../servicos/acompanhamento.js";
+import { chipsSaudeDaTurma } from "../ui/alertas-ui.js";
 
 export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, definirContador }) {
   let verArquivadas = location.hash === "#arquivadas";
@@ -24,9 +26,23 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
   });
 
   let dados = null;
+  // Saúde das turmas ativas (acompanhamento acadêmico): carregada DEPOIS dos cards, sem a página esperar.
+  let saudePorTurma = {}, avisouErroSaude = false;
   async function carregar() {
     try { dados = await carregarProfessor(sessao.uid, { comAlunos: true, comArquivadas: true }); desenhar(); }
-    catch (e) { console.error(e); toast("Não foi possível carregar as turmas.", { tipo: "erro" }); }
+    catch (e) { console.error(e); toast("Não foi possível carregar as turmas.", { tipo: "erro" }); return; }
+    carregarSaude(dados);
+  }
+  async function carregarSaude(d) {
+    try {
+      const diag = await carregarDiagnosticoProfessor(d.turmas.map(x => x.t));
+      if (d !== dados) return; // a lista foi recarregada nesse meio tempo
+      saudePorTurma = Object.fromEntries(diag.turmas.map(x => [x.turma.id, x.resumo]));
+      desenhar();
+    } catch (e) {
+      console.error(e);
+      if (!avisouErroSaude) { avisouErroSaude = true; toast("Não foi possível carregar a situação dos alunos.", { tipo: "erro" }); }
+    }
   }
 
   function desenhar() {
@@ -58,6 +74,7 @@ export async function montar({ sessao, conteudo, href, definirCabecalhoMovel, de
         chips.push(n ? { texto: `${n} ${n === 1 ? "atividade para corrigir" : "atividades para corrigir"}`, classe: "chip contorno", icone: "check" }
                      : { texto: "Tudo corrigido", icone: "check" });
         if (msgs) chips.push({ texto: `${msgs} ${msgs === 1 ? "msg" : "msgs"}`, icone: "balao" });
+        chips.push(...chipsSaudeDaTurma(saudePorTurma[t.id]));
       }
       return cardTurma({ turma: t, subtitulo: `${alunos} ${alunos === 1 ? "aluno" : "alunos"}`, chips, href: hrefTurma(t),
         classe: t.arquivada ? "arquivada" : "", aoMais: menuProfessor(sessao, t, sessao.nome, carregar) });
